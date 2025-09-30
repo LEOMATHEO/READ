@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Leitor QR Patrimônio</title>
+  <meta name="theme-color" content="#0ea5e9" />
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <style>
+    body{font-family:sans-serif;margin:0;background:#f8fafc;color:#0f172a}
+    header{background:#0ea5e9;color:#fff;padding:12px;font-weight:bold}
+    .container{padding:16px;max-width:900px;margin:auto}
+    video{width:100%;background:#000;border-radius:8px}
+    .form-group{margin:8px 0}
+    label{display:block;font-size:14px;color:#334155}
+    input{width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px}
+    button{margin:6px 4px 0 0;padding:8px 12px;border:none;border-radius:6px;cursor:pointer}
+    button.primary{background:#0ea5e9;color:#fff}
+    button.ghost{background:#fff;border:1px solid #cbd5e1}
+    table{width:100%;border-collapse:collapse;margin-top:16px}
+    th,td{border:1px solid #e2e8f0;padding:8px;font-size:14px}
+    th{background:#e2e8f0;text-align:left}
+  </style>
+</head>
+<body>
+  <header>Leitor QR Patrimônio (PWA)</header>
+  <div class="container">
+    <video id="preview" playsinline muted></video>
+    <div style="margin-top:8px">
+      <button id="btnStart" class="primary">Iniciar câmera</button>
+      <button id="btnStop" class="ghost" disabled>Parar</button>
+      <button id="btnScan" class="ghost" disabled>Escanear</button>
+    </div>
+
+    <div class="form-group">
+      <label>Descrição</label>
+      <input id="descricao" type="text" placeholder="Digite a descrição">
+    </div>
+    <div class="form-group">
+      <label>Local</label>
+      <input id="local" type="text" placeholder="Digite o local">
+    </div>
+    <div class="form-group">
+      <label>Carga</label>
+      <input id="carga" type="text" placeholder="Digite a carga">
+    </div>
+    <button id="btnSalvar" class="primary" disabled>Salvar na tabela</button>
+
+    <table id="resultTable">
+      <thead>
+        <tr><th>Tombamento</th><th>Descrição</th><th>Local</th><th>Carga</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div style="margin-top:8px">
+      <button id="btnExportCSV" class="ghost">Exportar CSV</button>
+      <button id="btnExportXLSX" class="ghost">Exportar Excel</button>
+      <button id="btnClear" class="ghost">Limpar</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    const video=document.getElementById('preview');
+    const btnStart=document.getElementById('btnStart');
+    const btnStop=document.getElementById('btnStop');
+    const btnScan=document.getElementById('btnScan');
+    const btnSalvar=document.getElementById('btnSalvar');
+    const descricao=document.getElementById('descricao');
+    const localInput=document.getElementById('local');
+    const carga=document.getElementById('carga');
+    const tbody=document.querySelector('#resultTable tbody');
+    const btnExportCSV=document.getElementById('btnExportCSV');
+    const btnExportXLSX=document.getElementById('btnExportXLSX');
+    const btnClear=document.getElementById('btnClear');
+
+    const codeReader=new ZXing.BrowserMultiFormatReader();
+    let stream=null,lastCode="";
+
+    async function start(){
+      try{
+        const devices=await navigator.mediaDevices.enumerateDevices();
+        const videoInput=devices.find(d=>d.kind==='videoinput');
+        stream=await navigator.mediaDevices.getUserMedia({video:{deviceId:videoInput.deviceId}});
+        video.srcObject=stream; await video.play();
+        btnStop.disabled=false; btnScan.disabled=false;
+      }catch(e){alert("Erro câmera:"+e)}
+    }
+    function stop(){
+      if(stream){stream.getTracks().forEach(t=>t.stop()); stream=null;}
+      video.srcObject=null; btnStop.disabled=true; btnScan.disabled=true;
+    }
+    async function scan(){
+      try{
+        const result=await codeReader.decodeOnceFromVideoDevice(undefined,'preview');
+        lastCode=result.text; alert("Código lido:"+lastCode);
+        btnSalvar.disabled=false;
+      }catch(e){alert("Falha leitura");}
+    }
+    function salvar(){
+      if(!lastCode){alert("Nenhum código lido");return;}
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${lastCode}</td><td>${descricao.value}</td><td>${localInput.value}</td><td>${carga.value}</td>`;
+      tbody.appendChild(tr); saveAll();
+      descricao.value="";localInput.value="";carga.value="";
+      lastCode=""; btnSalvar.disabled=true;
+    }
+    function saveAll(){
+      const rows=Array.from(tbody.querySelectorAll('tr')).map(tr=>({
+        tombamento:tr.children[0].textContent,
+        descricao:tr.children[1].textContent,
+        local:tr.children[2].textContent,
+        carga:tr.children[3].textContent
+      }));
+      localStorage.setItem('patrimonio',JSON.stringify(rows));
+    }
+    function loadSaved(){
+      const saved=JSON.parse(localStorage.getItem('patrimonio')||'[]');
+      saved.forEach(r=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td>${r.tombamento}</td><td>${r.descricao}</td><td>${r.local}</td><td>${r.carga}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    btnStart.addEventListener('click',start);
+    btnStop.addEventListener('click',stop);
+    btnScan.addEventListener('click',scan);
+    btnSalvar.addEventListener('click',salvar);
+
+    // Exportação corrigida: colunas separadas
+    btnExportCSV.addEventListener('click',()=>{
+      const rows=[['Tombamento','Descrição','Local','Carga']];
+      tbody.querySelectorAll('tr').forEach(tr=>{
+        rows.push([
+          tr.children[0].textContent,
+          tr.children[1].textContent,
+          tr.children[2].textContent,
+          tr.children[3].textContent
+        ]);
+      });
+      const csv=rows.map(r=>r.map(x=>`"${x}"`).join(',')).join('\n');
+      const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download="patrimonio.csv";a.click();
+    });
+
+    btnExportXLSX.addEventListener('click',()=>{
+      const data=[];
+      tbody.querySelectorAll('tr').forEach(tr=>{
+        data.push({
+          'Tombamento':tr.children[0].textContent,
+          'Descrição':tr.children[1].textContent,
+          'Local':tr.children[2].textContent,
+          'Carga':tr.children[3].textContent
+        });
+      });
+      const wb=XLSX.utils.book_new();
+      const ws=XLSX.utils.json_to_sheet(data);
+      XLSX.utils.book_append_sheet(wb,ws,'Patrimonio');
+      XLSX.writeFile(wb,'patrimonio.xlsx');
+    });
+
+    btnClear.addEventListener('click',()=>{tbody.innerHTML="";saveAll();});
+    loadSaved();
+  </script>
+</body>
+</html>
